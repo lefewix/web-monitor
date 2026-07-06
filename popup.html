@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Web Monitor</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <span class="brand">Web Monitor</span>
+    <span class="hint">checks every 30s while Chrome runs</span>
+  </header>
+
+  <form id="add">
+    <div class="row">
+      <input id="url" type="url" placeholder="https://page-to-watch.com" required>
+    </div>
+    <div class="row">
+      <input id="keyword" placeholder='optional: watch a phrase, e.g. "sold out"'>
+      <button class="primary">Watch</button>
+    </div>
+  </form>
+
+  <ul id="list"></ul>
+
+  <details id="settingsBox">
+    <summary>Settings</summary>
+    <div class="row">
+      <input id="webhook" type="url" placeholder="webhook URL (ntfy.sh / discord / ifttt)">
+      <button id="saveWebhook">Save</button>
+    </div>
+  </details>
+
+  <details id="historyBox">
+    <summary>Alert history <button id="clearHistory" class="danger" title="clear history">clear</button></summary>
+    <ul id="history"></ul>
+  </details>
+
+  <footer>Orange row = page changed. Click the link to open it and clear the alert.</footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
