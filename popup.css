@@ -245,6 +245,7 @@ details .row { margin-top: 8px; }
   color: var(--m4);
   overflow-wrap: anywhere;
 }
+.status:empty { display: none; }
 .status.err { color: var(--err); }
 .status.ok { color: var(--ac-pale); }
 

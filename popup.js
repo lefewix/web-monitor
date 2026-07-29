@@ -1,13 +1,18 @@
-async function getWatches() {
-  return (await chrome.storage.local.get("watches")).watches || {};
+// The popup NEVER writes `watches` or `history` — the service worker is the
+// single writer. Reads are direct; every mutation is a message it applies inside
+// its serialised queue.
+
+function send(msg) {
+  return new Promise(resolve => {
+    chrome.runtime.sendMessage(msg, r => {
+      if (chrome.runtime.lastError) return resolve({ ok: false, error: chrome.runtime.lastError.message });
+      resolve(r || { ok: false, error: "no response from the extension" });
+    });
+  });
 }
 
-// Re-read, touch one entry, write back — background.js may be mid-check.
-async function updateWatch(url, mutate) {
-  const watches = await getWatches();
-  if (!watches[url]) return;
-  mutate(watches[url]);
-  await chrome.storage.local.set({ watches });
+async function getWatches() {
+  return (await chrome.storage.local.get("watches")).watches || {};
 }
 
 function ago(ts) {
@@ -29,6 +34,38 @@ function chip(text, cls, title) {
   s.textContent = text;
   if (title) s.title = title;
   return s;
+}
+
+function tinyButton(label, title, onclick) {
+  const b = document.createElement("button");
+  b.className = "tiny";
+  b.textContent = label;
+  if (title) b.title = title;
+  b.onclick = onclick;
+  return b;
+}
+
+const addForm = document.getElementById("add");
+const urlInput = document.getElementById("url");
+const keywordInput = document.getElementById("keyword");
+const selectorInput = document.getElementById("selector");
+const intervalInput = document.getElementById("interval");
+const addError = document.getElementById("addError");
+
+function showAddError(text) {
+  addError.textContent = text || "";
+  addError.className = "status" + (text ? " err" : "");
+}
+
+// Re-adding a URL is the edit path — the worker preserves its baseline and
+// snooze state, so "edit" just refills the form.
+function editWatch(url, w) {
+  urlInput.value = url;
+  keywordInput.value = w.keyword || "";
+  selectorInput.value = w.selector || "";
+  intervalInput.value = String(w.interval || 0.5);
+  showAddError("");
+  urlInput.focus();
 }
 
 async function render() {
@@ -58,11 +95,7 @@ async function render() {
     del.textContent = "✕";
     del.title = "stop watching";
     del.onclick = async () => {
-      const watches = await getWatches();
-      delete watches[url];
-      await chrome.storage.local.set({ watches });
-      chrome.alarms.clear(url);
-      chrome.runtime.sendMessage({ type: "updateBadge" });
+      await send({ type: "remove", url });
       render();
     };
 
@@ -76,25 +109,22 @@ async function render() {
     if (w.lastError) chips.append(chip(w.lastError, "err", w.lastError));
     else chips.append(chip(ago(w.lastCheck), "", "last checked"));
 
+    chips.append(tinyButton("edit", "change interval, phrase or selector", () => editWatch(url, w)));
+
     const snoozed = w.snoozeUntil > Date.now();
     if (snoozed) {
       chips.append(chip(`muted ${until(w.snoozeUntil)}`, "muted", "notifications suppressed; still checking"));
-      const un = document.createElement("button");
-      un.className = "tiny";
-      un.textContent = "unmute";
-      un.onclick = async () => { await updateWatch(url, x => { x.snoozeUntil = 0; }); render(); };
-      chips.append(un);
+      chips.append(tinyButton("unmute", "resume notifications", async () => {
+        await send({ type: "snooze", url, until: 0 });
+        render();
+      }));
     } else if (w.changed) {
       chips.append(chip("snooze", "label", "suppress notifications for a while"));
       for (const h of [1, 6, 24]) {
-        const b = document.createElement("button");
-        b.className = "tiny";
-        b.textContent = `${h}h`;
-        b.onclick = async () => {
-          await updateWatch(url, x => { x.snoozeUntil = Date.now() + h * 3600000; });
+        chips.append(tinyButton(`${h}h`, `mute for ${h}h`, async () => {
+          await send({ type: "snooze", url, until: Date.now() + h * 3600000 });
           render();
-        };
-        chips.append(b);
+        }));
       }
     }
 
@@ -104,26 +134,27 @@ async function render() {
 }
 
 async function clearChanged(url) {
-  await updateWatch(url, w => { w.changed = false; });
-  chrome.runtime.sendMessage({ type: "updateBadge" });
+  await send({ type: "clearChanged", url });
   render();
 }
 
-document.getElementById("add").onsubmit = async e => {
+addForm.onsubmit = async e => {
   e.preventDefault();
-  const url = document.getElementById("url").value.trim();
-  const keyword = document.getElementById("keyword").value.trim().toLowerCase();
-  const selector = document.getElementById("selector").value.trim();
-  const interval = Number(document.getElementById("interval").value) || 0.5;
-  const watches = await getWatches();
-  watches[url] = { interval };
-  if (keyword) watches[url].keyword = keyword;
-  if (selector) watches[url].selector = selector;
-  await chrome.storage.local.set({ watches });
-  chrome.alarms.create(url, { periodInMinutes: interval });
-  chrome.runtime.sendMessage({ type: "checkNow", url }, render); // baseline fetch now
-  document.getElementById("add").reset();
+  showAddError("");
+  const url = urlInput.value.trim();
+  const r = await send({
+    type: "add",
+    url,
+    keyword: keywordInput.value.trim().toLowerCase(),
+    selector: selectorInput.value.trim(),
+    interval: Number(intervalInput.value) || 0.5,
+  });
+  if (!r.ok) return showAddError(r.error || "could not save that watch");
+  addForm.reset();
+  await render();
+  await send({ type: "checkNow", url }); // baseline fetch now
   render();
+  renderHistory();
 };
 
 async function renderHistory() {
@@ -157,14 +188,13 @@ async function renderHistory() {
 
 document.getElementById("clearHistory").onclick = async e => {
   e.preventDefault(); // don't toggle the <details>
-  await chrome.storage.local.set({ history: [] });
+  await send({ type: "clearHistory" });
   renderHistory();
 };
 
 // prefill with the tab you're on
 chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
   const t = tabs[0];
-  const urlInput = document.getElementById("url");
   if (t && t.url && t.url.startsWith("http") && !urlInput.value) urlInput.value = t.url;
 });
 
@@ -185,7 +215,7 @@ chrome.storage.local.get(["webhook", "webhookStatus"]).then(({ webhook, webhookS
 
 document.getElementById("saveWebhook").onclick = async e => {
   e.preventDefault();
-  await chrome.storage.local.set({ webhook: document.getElementById("webhook").value.trim(), webhookStatus: null });
+  await send({ type: "setWebhook", webhook: document.getElementById("webhook").value.trim() });
   showStatus("", true);
   e.target.textContent = "Saved";
   setTimeout(() => (e.target.textContent = "Save"), 1200);
@@ -196,10 +226,8 @@ document.getElementById("testWebhook").onclick = async e => {
   const webhook = document.getElementById("webhook").value.trim();
   if (!webhook) return showStatus("enter a webhook URL first", false);
   showStatus("sending…", true);
-  chrome.runtime.sendMessage({ type: "testWebhook", webhook }, r => {
-    if (!r) return showStatus("no response from the extension", false);
-    showStatus(r.ok ? `delivered — ${r.detail}` : `failed — ${r.detail}`, r.ok);
-  });
+  const r = await send({ type: "testWebhook", webhook });
+  showStatus(r.ok ? `delivered — ${r.detail}` : `failed — ${r.error || r.detail}`, r.ok);
 };
 
 render();
