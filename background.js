@@ -83,7 +83,7 @@ async function alert(url, title, watches) {
 function updateBadge(watches) {
   const n = Object.values(watches).filter(w => w.changed).length;
   chrome.action.setBadgeText({ text: n ? String(n) : "" });
-  chrome.action.setBadgeBackgroundColor({ color: "#FC7643" });
+  chrome.action.setBadgeBackgroundColor({ color: "#8b5cf6" });
 }
 
 // clicking the notification opens the page

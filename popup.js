@@ -113,7 +113,7 @@ chrome.storage.local.get("webhook").then(({ webhook }) => {
 document.getElementById("saveWebhook").onclick = async e => {
   e.preventDefault();
   await chrome.storage.local.set({ webhook: document.getElementById("webhook").value.trim() });
-  e.target.textContent = "Saved ✓";
+  e.target.textContent = "Saved";
   setTimeout(() => (e.target.textContent = "Save"), 1200);
 };
 
