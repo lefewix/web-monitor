@@ -8,7 +8,7 @@
 <body>
   <header>
     <span class="brand">Web Monitor</span>
-    <span class="hint">checks every 30s while Chrome runs</span>
+    <span class="hint">checks run while Chrome runs</span>
   </header>
 
   <form id="add">
@@ -17,6 +17,16 @@
     </div>
     <div class="row">
       <input id="keyword" placeholder='optional: watch a phrase, e.g. "sold out"'>
+    </div>
+    <div class="row">
+      <input id="selector" placeholder="optional: CSS selector, e.g. #price">
+      <select id="interval" title="how often to check">
+        <option value="0.5" selected>30s</option>
+        <option value="1">1m</option>
+        <option value="5">5m</option>
+        <option value="15">15m</option>
+        <option value="60">1h</option>
+      </select>
       <button class="primary">Watch</button>
     </div>
   </form>
@@ -28,7 +38,10 @@
     <div class="row">
       <input id="webhook" type="url" placeholder="webhook URL (ntfy.sh / discord / ifttt)">
       <button id="saveWebhook">Save</button>
+      <button id="testWebhook">Test</button>
     </div>
+    <div id="webhookStatus" class="status"></div>
+    <p class="note">Selectors support <code>#id</code>, <code>.class</code>, <code>tag</code> and combinations like <code>div.price</code> — no descendant combinators.</p>
   </details>
 
   <details id="historyBox">

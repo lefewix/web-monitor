@@ -35,7 +35,7 @@ body {
   padding: 14px;
 }
 
-a, button, summary, input { transition: color .15s, background-color .15s, border-color .15s; }
+a, button, summary, input, select { transition: color .15s, background-color .15s, border-color .15s; }
 :focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }
 
 header {
@@ -77,6 +77,19 @@ input:hover { border-color: var(--hairh); }
 input:focus { outline: none; border-color: var(--ac); }
 input::placeholder { color: var(--m7); }
 
+select {
+  background: var(--inp);
+  border: 1px solid var(--b1);
+  border-radius: 8px;
+  color: var(--m1);
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+select:hover { border-color: var(--hairh); color: var(--txt); }
+select:focus { outline: none; border-color: var(--ac); }
+
 button {
   font: inherit;
   font-size: 12.5px;
@@ -106,8 +119,8 @@ button.primary:hover {
 ul { list-style: none; margin-top: 14px; }
 li {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   padding: 9px 10px;
   border: 1px solid var(--hair);
   border-radius: 12px;
@@ -133,6 +146,9 @@ li a {
 li a:hover { color: var(--txtstrong); }
 li.changed a { color: var(--ac-pale); font-weight: 600; }
 
+li .line { display: flex; align-items: center; gap: 8px; }
+li .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+
 .meta {
   color: var(--m4);
   font-family: var(--mono);
@@ -144,6 +160,22 @@ li.changed a { color: var(--ac-pale); font-weight: 600; }
   padding: 2px 6px;
 }
 .meta.err { color: var(--err); }
+.meta.label { border-color: transparent; background: transparent; padding-left: 2px; padding-right: 2px; color: var(--m7); }
+.meta.muted {
+  color: var(--ac-pale);
+  background: color-mix(in srgb, var(--ac) 16%, transparent);
+  border-color: color-mix(in srgb, var(--ac-soft) 32%, transparent);
+}
+
+button.tiny {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--surface3);
+  color: var(--m4);
+}
 
 button.danger {
   color: var(--m7);
@@ -196,6 +228,32 @@ details .row { margin-top: 8px; }
   white-space: nowrap;
 }
 #history a:hover { color: var(--txt); }
+#history .preview {
+  margin-top: 3px;
+  color: var(--m7);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--m4);
+  overflow-wrap: anywhere;
+}
+.status.err { color: var(--err); }
+.status.ok { color: var(--ac-pale); }
+
+.note {
+  margin-top: 8px;
+  color: var(--m7);
+  font-size: 10.5px;
+}
+.note code { font-family: var(--mono); color: var(--m4); }
 
 footer {
   margin-top: 14px;

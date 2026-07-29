@@ -3,6 +3,7 @@
   "name": "My Web Monitor",
   "version": "1.0.0",
   "description": "Watch pages for changes on your own schedule.",
+  "minimum_chrome_version": "120",
   "permissions": ["alarms", "storage", "notifications", "tabs", "background"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
