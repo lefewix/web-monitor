@@ -32,6 +32,10 @@
     <div id="addError" class="status"></div>
   </form>
 
+  <div class="row" id="searchRow" hidden>
+    <input id="search" type="search" placeholder="filter watches by URL, phrase or selector">
+  </div>
+
   <ul id="list"></ul>
 
   <details id="settingsBox">
@@ -42,7 +46,7 @@
       <button id="testWebhook">Test</button>
     </div>
     <div id="webhookStatus" class="status"></div>
-    <p class="note">Selectors support <code>#id</code>, <code>.class</code>, <code>tag</code> and combinations like <code>div.price.big</code> — no descendant combinators. Re-adding a URL edits the existing watch and keeps its baseline.</p>
+    <p class="note">Selectors support <code>#id</code>, <code>.class</code>, <code>tag</code> and combinations like <code>div.price.big</code> — no descendant combinators. Re-adding a URL edits the existing watch and keeps its baseline. Pages are fetched without your cookies, so anything behind a login is seen logged out.</p>
   </details>
 
   <details id="historyBox">
@@ -51,6 +55,8 @@
   </details>
 
   <footer>Highlighted row = page changed. Click the link to open it and clear the alert.</footer>
+
+  <div id="toasts" aria-live="polite"></div>
 
   <script src="popup.js"></script>
 </body>
