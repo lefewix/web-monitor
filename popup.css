@@ -1,23 +1,23 @@
-/* Web Monitor — FLX design base: near-black violet-cast base, single violet accent. */
+/* Web Monitor — warm-paper family base: cream surfaces, walnut ink, almond tints. */
 :root {
-  --ac: #8b5cf6;
-  --ac2: #6366f1;
-  --ac-pale: color-mix(in srgb, var(--ac) 45%, white);
-  --ac-soft: color-mix(in srgb, var(--ac) 72%, white);
-  --bg: #101014;
-  --surface: #17161c;
-  --surface3: #17171c;
-  --inp: #0c0c10;
-  --txt: #ecebf0;
-  --txtstrong: #ffffff;
-  --m1: #9b93b3;
-  --m4: #8a879d;
-  --m7: #838096;
-  --b1: #24232c;
-  --hair: rgba(255, 255, 255, .08);
-  --hairh: rgba(255, 255, 255, .14);
-  --row-hover: #1a1922;
-  --err: #ff8b8b;
+  --ac: #433633;
+  --ac2: #5c5552;
+  --ac-pale: #6b5744;
+  --ac-soft: #decbb7;
+  --bg: #f7f0f5;
+  --surface: #fffdfb;
+  --surface3: #fbf6f2;
+  --inp: #fffdfb;
+  --txt: #433633;
+  --txtstrong: #2a211e;
+  --m1: #5c5552;
+  --m4: #6e6560;
+  --m7: #8f857d;
+  --b1: #e0d5cb;
+  --hair: rgba(67, 54, 51, .12);
+  --hairh: rgba(67, 54, 51, .24);
+  --row-hover: #efe7e0;
+  --err: #a94438;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -107,13 +107,13 @@ button:active { transform: translateY(1px); }
 button.primary {
   background: var(--ac);
   border-color: var(--ac);
-  color: #fff;
+  color: #f7f0f5;
   font-weight: 600;
 }
 button.primary:hover {
-  background: color-mix(in srgb, var(--ac) 85%, white);
-  border-color: color-mix(in srgb, var(--ac) 85%, white);
-  color: #fff;
+  background: var(--ac2);
+  border-color: var(--ac2);
+  color: #f7f0f5;
 }
 
 ul { list-style: none; margin-top: 14px; }
@@ -125,14 +125,14 @@ li {
   border: 1px solid var(--hair);
   border-radius: 12px;
   background: var(--surface);
-  box-shadow: 0 4px 16px rgba(8, 5, 20, .45);
+  box-shadow: 0 4px 16px rgba(67, 54, 51, .12);
   margin-bottom: 6px;
   transition: background-color .15s, border-color .15s;
 }
 li:hover { background: var(--row-hover); border-color: var(--hairh); }
 li.changed {
-  border-color: color-mix(in srgb, var(--ac-soft) 32%, transparent);
-  background: color-mix(in srgb, var(--ac) 16%, transparent);
+  border-color: color-mix(in srgb, var(--ac-soft) 90%, transparent);
+  background: color-mix(in srgb, var(--ac-soft) 40%, transparent);
 }
 li a {
   flex: 1;
@@ -167,8 +167,8 @@ li .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .meta.label { border-color: transparent; background: transparent; padding-left: 2px; padding-right: 2px; color: var(--m7); }
 .meta.muted {
   color: var(--ac-pale);
-  background: color-mix(in srgb, var(--ac) 16%, transparent);
-  border-color: color-mix(in srgb, var(--ac-soft) 32%, transparent);
+  background: color-mix(in srgb, var(--ac-soft) 40%, transparent);
+  border-color: color-mix(in srgb, var(--ac-soft) 90%, transparent);
 }
 
 button.tiny {
@@ -278,7 +278,7 @@ details .row { margin-top: 8px; }
   background: var(--surface);
   border: 1px solid var(--hair);
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(8, 5, 20, .6);
+  box-shadow: 0 8px 24px rgba(67, 54, 51, .18);
   font-size: 12px;
   color: var(--m1);
   animation: rise .16s ease-out;
@@ -294,11 +294,15 @@ details .row { margin-top: 8px; }
   border-radius: 6px;
 }
 .toast .undo:hover {
-  background: color-mix(in srgb, var(--ac) 16%, transparent);
-  border-color: color-mix(in srgb, var(--ac-soft) 32%, transparent);
+  background: color-mix(in srgb, var(--ac-soft) 40%, transparent);
+  border-color: color-mix(in srgb, var(--ac-soft) 90%, transparent);
   color: var(--ac-pale);
 }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+  button:active { transform: none; }
+}
 
 footer {
   margin-top: 14px;
