@@ -21,13 +21,13 @@
     <div class="row">
       <input id="selector" placeholder="optional: CSS selector, e.g. #price">
       <select id="interval" title="how often to check">
-        <option value="0.5" selected>30s</option>
+        <option value="0.5">30s</option>
         <option value="1">1m</option>
-        <option value="5">5m</option>
+        <option value="5" selected>5m</option>
         <option value="15">15m</option>
         <option value="60">1h</option>
       </select>
-      <button class="primary">Watch</button>
+      <button id="addButton" class="primary">Watch</button>
     </div>
     <div id="addError" class="status"></div>
   </form>
@@ -50,8 +50,10 @@
   </details>
 
   <details id="historyBox">
-    <summary>Alert history <button id="clearHistory" class="danger" title="clear history">clear</button></summary>
+    <summary>Alert history</summary>
     <ul id="history"></ul>
+    <!-- outside the <summary>: a button inside one is invalid HTML and toggled the details -->
+    <div class="row"><button id="clearHistory" class="danger" title="clear alert history">clear history</button></div>
   </details>
 
   <footer>Highlighted row = page changed. Click the link to open it and clear the alert.</footer>

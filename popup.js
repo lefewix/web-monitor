@@ -32,7 +32,21 @@ function until(ts) {
   return m >= 60 ? `${Math.round(m / 60)}h` : `${Math.max(m, 1)}m`;
 }
 
+// Must match DEFAULT_INTERVAL in background.js: 30s polling of arbitrary sites
+// invites bot walls, so 5m is the default and 30s stays available.
+const DEFAULT_INTERVAL = 5;
+
 const INTERVAL_LABELS = { 0.5: "30s", 1: "1m", 5: "5m", 15: "15m", 60: "1h" };
+
+// A watch can hold an interval that isn't in the dropdown (older build, or the
+// message API). `INTERVAL_LABELS[iv] || "30s"` labelled a 10m watch as 30s.
+function intervalLabel(iv) {
+  const m = Number(iv) || DEFAULT_INTERVAL;
+  if (INTERVAL_LABELS[m]) return INTERVAL_LABELS[m];
+  if (m < 1) return `${Math.round(m * 60)}s`;
+  if (m < 60) return `${+m.toFixed(1)}m`;
+  return `${+(m / 60).toFixed(1)}h`;
+}
 
 function chip(text, cls, title) {
   const s = document.createElement("span");
@@ -66,13 +80,30 @@ function showAddError(text) {
   addError.className = "status" + (text ? " err" : "");
 }
 
+// Options we added to hold a watch's nonstandard interval; dropped as soon as
+// the form is reset or another watch is edited.
+function clearAdhocIntervals() {
+  for (const o of [...intervalInput.options]) if (o.dataset.adhoc) o.remove();
+}
+
 // Re-adding a URL is the edit path — the worker preserves its baseline and
 // snooze state, so "edit" just refills the form.
 function editWatch(url, w) {
   urlInput.value = url;
   keywordInput.value = w.keyword || "";
   selectorInput.value = w.selector || "";
-  intervalInput.value = String(w.interval || 0.5);
+  clearAdhocIntervals();
+  const iv = Number(w.interval) || DEFAULT_INTERVAL;
+  // Editing the phrase of a 10m watch must not silently re-poll it every 30s:
+  // an interval the dropdown can't represent gets its own option instead.
+  if (![...intervalInput.options].some(o => Number(o.value) === iv)) {
+    const o = document.createElement("option");
+    o.value = String(iv);
+    o.textContent = intervalLabel(iv);
+    o.dataset.adhoc = "1";
+    intervalInput.append(o);
+  }
+  intervalInput.value = String(iv);
   showAddError("");
   urlInput.focus();
 }
@@ -93,6 +124,25 @@ function matches(url, w, q) {
 // which rows have their snooze durations expanded
 const openSnooze = new Set();
 
+// Rows are rebuilt on every storage change; only the popup's first paint gets
+// the entrance animation (see #list.intro in the CSS).
+let firstRender = true;
+
+// A muted row shows a live countdown, and unmuting is what makes a queued alert
+// fire — so the row has to stop saying "muted" the moment the snooze runs out,
+// not at the next check.
+let snoozeTimer = 0;
+function scheduleSnoozeRefresh(watches) {
+  clearTimeout(snoozeTimer);
+  const now = Date.now();
+  let next = 0;
+  for (const w of Object.values(watches)) {
+    if (w.snoozeUntil > now && (!next || w.snoozeUntil < next)) next = w.snoozeUntil;
+  }
+  // Capped at a minute so the "muted 42m" text stays honest while it counts down.
+  if (next) snoozeTimer = setTimeout(render, Math.min(next - now + 250, 60000));
+}
+
 async function render() {
   const watches = await getWatches();
   const list = document.getElementById("list");
@@ -100,9 +150,21 @@ async function render() {
   searchRow.hidden = entries.length <= 5;
   const q = searchRow.hidden ? "" : searchInput.value.trim().toLowerCase();
 
+  scheduleSnoozeRefresh(watches);
   list.innerHTML = "";
+  list.classList.toggle("intro", firstRender);
+  firstRender = false;
   if (!entries.length) {
-    list.innerHTML = '<div class="empty">nothing watched yet — add a URL above</div>';
+    // First run: say where alerts actually arrive. "Nothing watched yet" alone
+    // left people waiting for a notification Chrome had never been asked for.
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.append("nothing watched yet — add a URL above");
+    const sub = document.createElement("span");
+    sub.className = "sub";
+    sub.textContent = "Changes arrive as Chrome notifications (allow them for this extension), and to your phone or Discord if you add a webhook under Settings.";
+    empty.append(sub);
+    list.append(empty);
     return;
   }
   const rows = entries
@@ -125,12 +187,18 @@ async function render() {
     a.target = "_blank";
     a.textContent = url.replace(/^https?:\/\//, "");
     a.title = url;
-    a.onclick = () => clearChanged(url);
+    a.onclick = () => { if (w.changed) clearChanged(url, w.throttled || 0); };
 
     const now = tinyButton("check", "check this page right now", async e => {
       e.target.disabled = true;
       e.target.textContent = "checking…";
-      await send({ type: "checkNow", url });
+      const r = await send({ type: "checkNow", url });
+      // The result used to be discarded: a check that failed, or that was
+      // skipped because one was already running, looked exactly like a clean one.
+      if (!r || r.ok === false) toast(`Check failed — ${(r && r.error) || "no response"}`);
+      else if (r.error) toast(`Check failed — ${r.error}`);
+      else if (r.skipped === "in-flight") toast("Already checking this page…");
+      else if (r.skipped) toast("That watch is no longer here");
       render();
       renderHistory();
     });
@@ -155,7 +223,7 @@ async function render() {
 
     const chips = document.createElement("div");
     chips.className = "chips";
-    chips.append(chip(INTERVAL_LABELS[w.interval] || "30s", "", "check interval"));
+    chips.append(chip(intervalLabel(w.interval), "", "check interval"));
 
     if (w.keyword) {
       // Three states. `undefined` used to render as "absent", which on a
@@ -186,7 +254,7 @@ async function render() {
       const f = w.alertFailure;
       chips.append(chip("alert not delivered", "err", `${f.title}\n${f.detail || ""}\n${new Date(f.ts).toLocaleString()}`));
       chips.append(tinyButton("dismiss", "acknowledge the undelivered alert", async () => {
-        await send({ type: "dismissAlertFailure", url });
+        reportGone(await send({ type: "dismissAlertFailure", url }));
         render();
       }));
     }
@@ -197,7 +265,8 @@ async function render() {
     if (snoozed) {
       chips.append(chip(`muted ${until(w.snoozeUntil)}`, "muted", "notifications suppressed; still checking"));
       chips.append(tinyButton("unmute", "resume notifications", async () => {
-        await send({ type: "snooze", url, until: 0 });
+        const r = await send({ type: "snooze", url, until: 0 });
+        reportGone(r);
         render();
       }));
     } else if (openSnooze.has(url)) {
@@ -207,7 +276,8 @@ async function render() {
       for (const h of [1, 6, 24]) {
         chips.append(tinyButton(`${h}h`, `mute for ${h}h`, async () => {
           openSnooze.delete(url);
-          await send({ type: "snooze", url, until: Date.now() + h * 3600000 });
+          const r = await send({ type: "snooze", url, until: Date.now() + h * 3600000 });
+          reportGone(r);
           render();
         }));
       }
@@ -223,30 +293,63 @@ async function render() {
   }
 }
 
-async function clearChanged(url) {
-  await send({ type: "clearChanged", url });
+// The worker answers { ok:false, gone:true } when the watch was deleted under
+// the popup's feet — say so rather than pretending the mutation landed.
+function reportGone(r) {
+  if (r && r.gone) toast("That watch is no longer here");
+  return r;
+}
+
+async function clearChanged(url, throttled) {
+  const r = await send({ type: "clearChanged", url });
   render();
+  if (reportGone(r).gone) return;
+  // Undoable like every other destructive action: clearing the flag is how a
+  // change you hadn't read yet stops being highlighted.
+  undoToast("Cleared the changed mark", async () => {
+    await send({ type: "restoreChanged", url, throttled });
+    render();
+  });
 }
 
 searchInput.oninput = () => render();
+
+const addButton = document.getElementById("addButton");
 
 addForm.onsubmit = async e => {
   e.preventDefault();
   showAddError("");
   const url = urlInput.value.trim();
-  const r = await send({
-    type: "add",
-    url,
-    keyword: keywordInput.value.trim().toLowerCase(),
-    selector: selectorInput.value.trim(),
-    interval: Number(intervalInput.value) || 0.5,
-  });
-  if (!r.ok) return showAddError(r.error || "could not save that watch");
-  addForm.reset();
-  await render();
-  await send({ type: "checkNow", url: r.url || url }); // baseline fetch now
-  render();
-  renderHistory();
+  // The baseline fetch below is a real network round trip. Without a busy state
+  // the button sat there looking un-pressed for the whole of it.
+  addButton.disabled = true;
+  addButton.textContent = "Adding…";
+  try {
+    const r = await send({
+      type: "add",
+      url,
+      keyword: keywordInput.value.trim().toLowerCase(),
+      selector: selectorInput.value.trim(),
+      interval: Number(intervalInput.value) || DEFAULT_INTERVAL,
+    });
+    if (!r.ok) return showAddError(r.error || "could not save that watch");
+    addForm.reset();
+    clearAdhocIntervals();
+    await render();
+    // "Re-add = edit" is invisible otherwise: the form just clears and the list
+    // looks unchanged. The worker already tells us which happened.
+    if (r.existed) {
+      toast(r.rebaselined
+        ? "Updated existing watch — baseline reset"
+        : "Updated existing watch — baseline kept");
+    }
+    await send({ type: "checkNow", url: r.url || url }); // baseline fetch now
+    render();
+    renderHistory();
+  } finally {
+    addButton.disabled = false;
+    addButton.textContent = "Watch";
+  }
 };
 
 async function renderHistory() {
@@ -294,9 +397,22 @@ document.getElementById("clearHistory").onclick = async e => {
 // Destructive actions are undoable rather than confirmed: one toast at a time,
 // it restores exactly what was removed, and its timer does not run while it is
 // hovered or focused — otherwise a keyboard user can lose the undo mid-reach.
+// The same surface, without a button, reports results that have no undo.
 
 const toastRoot = document.getElementById("toasts");
+const TOAST_EXIT_MS = 150; // keep in step with the `sink` animation in popup.css
 let toastEl = null, toastTimer = 0;
+
+// Is the user mid-typing? Stealing focus to the Undo button would swallow their
+// next keystrokes, so an autofocus is only worth it when nothing else is active.
+function formHasFocus() {
+  const el = document.activeElement;
+  return !!el && (addForm.contains(el) || el === searchInput || el.tagName === "INPUT");
+}
+
+function toast(text) {
+  return undoToast(text, null);
+}
 
 function undoToast(text, onUndo) {
   dismissToast();
@@ -308,21 +424,25 @@ function undoToast(text, onUndo) {
   const label = document.createElement("span");
   label.className = "toast-t";
   label.textContent = text;
+  t.append(label);
 
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "undo";
-  btn.textContent = "Undo";
-  btn.onclick = async () => {
-    dismissToast();
-    await onUndo();
-  };
+  if (onUndo) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "undo";
+    btn.textContent = "Undo";
+    btn.onclick = async () => {
+      dismissToast();
+      await onUndo();
+    };
+    t.append(btn);
+    toastRoot.append(t);
+    if (!formHasFocus()) btn.focus();
+  } else {
+    toastRoot.append(t);
+  }
 
-  t.append(label, btn);
-  toastRoot.append(t);
-  btn.focus();
-
-  const start = () => { clearTimeout(toastTimer); toastTimer = setTimeout(() => dismissToast(t), 6000); };
+  const start = () => { clearTimeout(toastTimer); toastTimer = setTimeout(() => dismissToast(t), onUndo ? 6000 : 3500); };
   const hold = () => clearTimeout(toastTimer);
   t.addEventListener("mouseenter", hold);
   t.addEventListener("focusin", hold);
@@ -334,8 +454,13 @@ function undoToast(text, onUndo) {
 function dismissToast(t) {
   if (t && t !== toastEl) return;
   clearTimeout(toastTimer);
-  if (toastEl) toastEl.remove();
+  const el = toastEl;
   toastEl = null;
+  if (!el) return;
+  // Fade out rather than disappearing on the click frame; the node is removed
+  // when the animation is done (and on schedule if motion is reduced).
+  el.classList.add("out");
+  setTimeout(() => el.remove(), TOAST_EXIT_MS + 10);
 }
 
 // prefill with the tab you're on

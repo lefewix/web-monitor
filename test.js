@@ -21,6 +21,8 @@ const clone = v => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)))
 let LATENCY = 0; // ms of randomised storage latency, for the concurrency guard
 const jitter = () => (LATENCY ? new Promise(r => setTimeout(r, Math.random() * LATENCY)) : null);
 
+let writes = 0; // storage writes, to prove read-only transactions don't do any
+
 const store = {
   _d: {},
   async get(keys) {
@@ -32,6 +34,7 @@ const store = {
   },
   async set(o) {
     await jitter();
+    writes++;
     Object.assign(this._d, clone(o));
   },
   async remove(k) { delete this._d[k]; },
@@ -128,6 +131,7 @@ async function reset() {
   notifyThrows = false;
   LATENCY = 0;
   badge.text = "";
+  writes = 0;
   pageHandler = () => htmlRes(PAGE("In stock"));
 }
 
@@ -611,6 +615,159 @@ async function misc() {
   });
 }
 
+// ================================================================== audit fixes
+// The 2026-07-30 audit: a mute must delay alerts, never eat them; an attribute
+// name must not be readable out of another attribute's value; a clean
+// transaction must not write.
+
+async function auditFixes() {
+  await test("AUDIT attrValue is quote-aware — an id inside a title does not shadow the real one", () => {
+    const html = `<div title="the id = 5 thing" id="real">FOUND</div>`;
+    assert.strictEqual(bg.extractSelector(html, "#real"), "FOUND");
+    assert.strictEqual(bg.extractSelector(html, "#5"), null, "a value fragment must not match as an id");
+  });
+
+  await test("AUDIT single quotes, unquoted values and boolean attributes all parse", () => {
+    assert.strictEqual(bg.extractSelector(`<div data-x='id=9' id='q'>A</div>`, "#q"), "A");
+    assert.strictEqual(bg.extractSelector(`<div hidden id=r class="a b">B</div>`, "#r"), "B");
+    assert.strictEqual(bg.extractSelector(`<div hidden id=r class="a b">B</div>`, "div.a.b"), "B");
+    assert.strictEqual(bg.extractSelector(`<div title="class=zz" class="yy">C</div>`, ".zz"), null);
+  });
+
+  await test("AUDIT a change while snoozed is delivered once the snooze expires", async () => {
+    await reset(); await keywordWatch();
+    await bg.handleMessage({ type: "snooze", url: URL1, until: Date.now() + 3600000 });
+    pageHandler = () => htmlRes(PAGE("In stock"));
+    await bg.check(URL1);
+    assert.strictEqual(notes.length, 0, "a muted watch must not notify");
+    const muted = await watchOf();
+    assert.ok(muted.pendingAlert, "the alert must be queued, not dropped");
+    assert.ok(muted.lastAlertAt, "the cooldown stamp is committed with the queued alert");
+
+    // the snooze runs out; the next check delivers what was queued
+    await bg.withWatches(({ watches }) => { watches[URL1].snoozeUntil = Date.now() - 1; });
+    await bg.check(URL1);
+    assert.strictEqual(notes.length, 1, `expected exactly 1 notification after expiry, got ${notes.length}`);
+    assert.ok(/gone/.test(notes[0].title), notes[0].title);
+    assert.strictEqual((await watchOf()).pendingAlert, undefined, "delivery must clear the queued alert");
+  });
+
+  await test("AUDIT unmuting delivers the alert that queued while muted", async () => {
+    await reset(); await keywordWatch();
+    await bg.handleMessage({ type: "snooze", url: URL1, until: Date.now() + 3600000 });
+    pageHandler = () => htmlRes(PAGE("In stock"));
+    await bg.check(URL1);
+    assert.strictEqual(notes.length, 0);
+    await bg.handleMessage({ type: "snooze", url: URL1, until: 0 });
+    assert.strictEqual(notes.length, 1, `unmute must flush the queued alert, got ${notes.length}`);
+  });
+
+  await test("AUDIT a watch that dies while snoozed still alerts after expiry", async () => {
+    await reset(); await keywordWatch();
+    await bg.handleMessage({ type: "snooze", url: URL1, until: Date.now() + 3600000 });
+    pageHandler = () => htmlRes("nope", { status: 403 });
+    for (let i = 0; i < bg.CONST.DEAD_AFTER_FAILURES; i++) await bg.check(URL1);
+    assert.strictEqual(notes.length, 0, "a muted watch must not notify its death either");
+    const w = await watchOf();
+    assert.strictEqual(w.dead, true);
+    assert.ok(w.pendingAlert, "the dead-watch alert must be queued");
+    const { history } = await store.get("history");
+    assert.ok(history.some(h => h.kind === "dead"), "history records it immediately");
+
+    await bg.withWatches(({ watches }) => { watches[URL1].snoozeUntil = Date.now() - 1; });
+    await bg.check(URL1);
+    assert.strictEqual(notes.length, 1, `expected 1 dead-watch notification after expiry, got ${notes.length}`);
+    assert.ok(/stopped working/i.test(notes[0].title), notes[0].title);
+  });
+
+  await test("AUDIT a dead-watch alert reads as an age, not an ISO timestamp", async () => {
+    await reset(); await keywordWatch();
+    pageHandler = () => htmlRes("nope", { status: 403 });
+    for (let i = 0; i < bg.CONST.DEAD_AFTER_FAILURES; i++) await bg.check(URL1);
+    const { history } = await store.get("history");
+    const dead = history.find(h => h.kind === "dead");
+    assert.ok(!/\d{4}-\d{2}-\d{2}T/.test(dead.preview), `raw timestamp in preview: ${dead.preview}`);
+    assert.ok(/ago|never/.test(dead.preview), dead.preview);
+  });
+
+  await test("AUDIT diffPreview says so when the change is past the stored snapshot", () => {
+    const cap = bg.CONST.MAX_TEXT_SNAPSHOT;
+    const old = "a".repeat(cap);
+    const note = bg.diffPreview(old, old + " the actual change is out here");
+    assert.ok(/beyond the stored/.test(note), note);
+    // and a change inside the snapshot still shows the change, not the boundary
+    const changed = "a".repeat(100) + "NOW IN STOCK" + "a".repeat(cap);
+    assert.ok(/NOW IN STOCK/.test(bg.diffPreview(old, changed)), bg.diffPreview(old, changed));
+  });
+
+  await test("AUDIT a read-only transaction writes nothing", async () => {
+    await reset();
+    await bg.addWatch({ url: URL1, interval: 5 });
+    writes = 0;
+    await bg.withWatches(({ watches }) => (watches[URL1] ? { seen: true } : null));
+    assert.strictEqual(writes, 0, `a snapshot read wrote ${writes} time(s)`);
+    // mutating a watch that no longer exists is read-only too, and says so
+    const r = await bg.handleMessage({ type: "clearChanged", url: "https://gone.example/x" });
+    assert.strictEqual(r.ok, false, JSON.stringify(r));
+    assert.strictEqual(r.gone, true, JSON.stringify(r));
+    assert.strictEqual(writes, 0, `a missing-watch mutation wrote ${writes} time(s)`);
+    // a real mutation still writes
+    await bg.handleMessage({ type: "clearChanged", url: URL1 });
+    assert.ok(writes > 0, "a real mutation must still write");
+  });
+
+  await test("AUDIT the badge separates a count of changes from a broken watch", async () => {
+    await reset();
+    await bg.withWatches(ctx => {
+      ctx.watches["https://a.example/"] = { changed: true };
+      ctx.watches["https://b.example/"] = { changed: true };
+      ctx.watches["https://c.example/"] = { dead: true };
+    });
+    bg.updateBadge((await store.get("watches")).watches);
+    assert.strictEqual(badge.text, "2!", `expected "2!", got "${badge.text}"`);
+
+    await bg.withWatches(ctx => { delete ctx.watches["https://c.example/"]; });
+    bg.updateBadge((await store.get("watches")).watches);
+    assert.strictEqual(badge.text, "2", `expected "2", got "${badge.text}"`);
+  });
+
+  await test("AUDIT the interval floor holds against the message API", async () => {
+    await reset();
+    await bg.handleMessage({ type: "add", url: URL1, interval: 0.001 });
+    assert.strictEqual((await watchOf()).interval, bg.CONST.MIN_INTERVAL);
+    assert.strictEqual(alarms.get(URL1).periodInMinutes, bg.CONST.MIN_INTERVAL);
+    await bg.handleMessage({ type: "add", url: URL1, interval: -5 });
+    assert.strictEqual((await watchOf()).interval, bg.CONST.MIN_INTERVAL);
+    await bg.handleMessage({ type: "add", url: URL1, interval: "nonsense" });
+    assert.strictEqual((await watchOf()).interval, bg.CONST.DEFAULT_INTERVAL, "an unparseable interval falls back to the default");
+  });
+
+  await test("AUDIT a missing interval defaults to 5 minutes, not 30 seconds", async () => {
+    await reset();
+    assert.strictEqual(bg.CONST.DEFAULT_INTERVAL, 5);
+    await bg.addWatch({ url: URL1 });
+    assert.strictEqual((await watchOf()).interval, 5);
+  });
+
+  await test("AUDIT re-adding a URL reports whether the baseline survived", async () => {
+    await reset();
+    const first = await bg.addWatch({ url: URL1, keyword: "sold out", interval: 5 });
+    assert.strictEqual(first.existed, false);
+    const same = await bg.addWatch({ url: URL1, keyword: "sold out", interval: 15 });
+    assert.deepStrictEqual([same.existed, same.rebaselined], [true, false], JSON.stringify(same));
+    const retermed = await bg.addWatch({ url: URL1, keyword: "in stock", interval: 15 });
+    assert.deepStrictEqual([retermed.existed, retermed.rebaselined], [true, true], JSON.stringify(retermed));
+  });
+
+  await test("AUDIT phrase preview lines up on a string whose lowercase is longer", () => {
+    // "İ" lowercases to TWO code points, so an index found in a lowercased copy
+    // points 200 characters past the phrase in the original.
+    const text = "İ".repeat(200) + " SOLD OUT today " + "z".repeat(400);
+    const p = bg.phrasePreview(text, "sold out", true);
+    assert.ok(/SOLD OUT today/.test(p), `context missed the phrase: ${p}`);
+  });
+}
+
 // ------------------------------------------------------------------ go
 
 (async () => {
@@ -621,6 +778,7 @@ async function misc() {
   await throttling();
   await concurrencyGuard();
   await misc();
+  await auditFixes();
 
   const total = pass + failures.length;
   if (failures.length) {

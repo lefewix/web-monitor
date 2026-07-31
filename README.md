@@ -4,21 +4,22 @@ A browser extension that watches web pages for changes — a self-hosted alterna
 
 ## Features
 
-- **Per-watch intervals** — 30s, 1m, 5m, 15m, or 1h per page, on a `chrome.alarms` schedule; no tab needs to stay open
+- **Per-watch intervals** — 30s, 1m, 5m, 15m, or 1h per page, on a `chrome.alarms` schedule; no tab needs to stay open. The default is **5m**: 30s polling of an arbitrary site is 2,880 requests a day per watch, which invites the very bot walls the checker defends against
 - **CSS-selector watching** — narrow a watch to one element (`#price`, `.stock`, `div.price.big`) so the rest of the page can churn freely
 - **Phrase watching** — optionally watch a specific phrase (e.g. `sold out`); alerts fire only when it appears or disappears, ignoring all other page churn
 - **Full-page mode** — without a phrase, any change to the page's visible text triggers an alert
 - **Desktop notifications** — Windows/macOS toast per alert; clicking it opens the page
 - **Webhook pings** — optionally POST every alert to a webhook (ntfy.sh, Discord, IFTTT → email)
-- **Snooze** — mute any watch for 1h/6h/24h, before or after it gets noisy; it keeps checking and tracking state, it just stops notifying
+- **Snooze** — mute any watch for 1h/6h/24h, before or after it gets noisy; it keeps checking and tracking state, it just stops notifying. A mute delays alerts, it never eats them: a change (or a death) that happens while muted is queued and delivered once you unmute or the snooze expires
 - **Dead-watch alerts** — three consecutive failed checks raise their own notification and webhook ping ("Watch stopped working — HTTP 403"), so a watch that quietly broke can't look healthy
 - **Bot-wall detection** — a 200 response that is empty, non-HTML, redirected elsewhere, an interstitial, or suddenly 70% smaller is recorded as a check error instead of being alerted on as a change
 - **Alert throttle** — one alert per watch per 5 minutes; further changes are counted (`+12 more`) rather than spamming you
-- **Undo** — deleting a watch or clearing history is undoable from a toast, not guarded by a confirm dialog
+- **Undo** — deleting a watch, clearing history, and clearing a row's changed mark are all undoable from a toast, not guarded by a confirm dialog
 - **Webhook testing** — a **Test** button reports the real outcome (`204 No Content`, `404 — webhook deleted?`, `timed out`), and the last real delivery failure stays visible
 - **Alert history** — the last 50 alerts are kept in the popup, each with a preview of what actually changed, capped at 10 per watch so one noisy page can't evict everything else
 - **Built for volume** — changed and broken watches float to the top, and a filter box appears past five watches; every row has a **check** button
 - **Privacy-first** — watches, hashes, and history live in `chrome.storage.local`; the only network calls are to the pages you watch and the webhook you configure
+- **Minimal permissions** — `alarms`, `storage`, `notifications` and host access, nothing else. The `background` permission (which keeps Chrome alive after its last window closes) is deliberately *not* requested: it contradicts the popup's own "checks run while Chrome runs" line and widens the install warning. `tabs` isn't requested either — the current tab's URL is readable for the pre-fill via the host permission alone
 
 ## Installation
 
@@ -34,7 +35,7 @@ A browser extension that watches web pages for changes — a self-hosted alterna
 2. Click the Web Monitor icon
 3. Optionally enter a phrase to watch, e.g. `sold out`
 4. Optionally enter a CSS selector to watch just one element, e.g. `#price`
-5. Pick a check interval (default 30s) and press **Watch**
+5. Pick a check interval (default 5m; 30s is still available for the pages that need it) and press **Watch**
 6. Each row shows whether the phrase is `present`, `absent`, or `not checked yet`
 
 When a change is detected you get a desktop notification, a violet badge on the toolbar icon, an entry in the popup's alert history, and a webhook ping if configured.
